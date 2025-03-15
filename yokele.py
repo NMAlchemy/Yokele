@@ -1,4 +1,4 @@
-import snscrape.modules.twitter as sntwitter
+import twint
 from collections import Counter
 import re
 
@@ -31,24 +31,30 @@ conclusion_templates = {
 }
 
 def scrape_tweets(username, max_tweets=100):
-    """Scrape tweets from a given Twitter username."""
+    c = twint.Config()
+    c.Username = username
+    c.Limit = max_tweets
+    c.Store_object = True
+    c.Hide_output = True
+    
     tweets = []
     try:
-        for i, tweet in enumerate(sntwitter.TwitterSearchScraper(f"from:{username}").get_items()):
-            if i >= max_tweets:
-                break
+        twint.run.Search(c)
+        for tweet in twint.output.tweets_list[:max_tweets]:
             tweets.append({
-                "date": tweet.date,
-                "content": tweet.rawContent,
-                "likes": tweet.likeCount,
-                "retweets": tweet.retweetCount,
-                "replies": tweet.replyCount
+                "date": tweet.datetime,
+                "content": tweet.tweet,
+                "likes": tweet.likes_count,
+                "retweets": tweet.retweets_count,
+                "replies": tweet.replies_count
             })
         print(f"Scraped {len(tweets)} tweets from {username}")
         return tweets
     except Exception as e:
         print(f"Error scraping tweets: {e}")
         return []
+    finally:
+        twint.output.tweets_list.clear()  # Reset list
 
 def analyze_tweets(tweets):
     """Analyze tweets for lifestyle keywords and count occurrences."""

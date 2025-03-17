@@ -9,6 +9,12 @@ from urllib.parse import urlparse
 from typing import List, Dict
 import logging
 import os
+from datetime import datetime
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -106,8 +112,60 @@ def load_payloads_from_file(file_path: str) -> List[str]:
         logger.error(f"Failed to read payload file '{file_path}': {e}. Using only default payloads.")
         return []
 
+# Write vulnerability to report file
+def log_vulnerability_to_file(report_file: str, target_url: str, payload: str) -> None:
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    report_entry = f"[{timestamp}] Potential XSS Vulnerability\nTarget URL: {target_url}\nPayload: {payload}\n{'-'*50}\n"
+    try:
+        with open(report_file, 'a', encoding='utf-8') as f:
+            f.write(report_entry)
+        logger.debug(f"Logged vulnerability to {report_file}")
+    except Exception as e:
+        logger.error(f"Failed to write to report file '{report_file}': {e}")
+
+# Send report file via email
+def send_report_email(report_file: str, smtp_server: str, smtp_port: int, smtp_user: str, smtp_pass: str, recipient: str = "miftahudeentajudeen@gmail.com") -> None:
+    if not os.path.exists(report_file) or os.path.getsize(report_file) == 0:
+        logger.info(f"No vulnerabilities found or report file '{report_file}' is empty. Skipping email.")
+        return
+
+    # Email configuration
+    sender = smtp_user
+    subject = f"XSS Vulnerability Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    body = "Attached is the XSS vulnerability report generated from the test."
+
+    # Create email
+    msg = MIMEMultipart()
+    msg['From'] = sender
+    msg['To'] = recipient
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    # Attach report file
+    try:
+        with open(report_file, 'rb') as f:
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f'attachment; filename={os.path.basename(report_file)}')
+            msg.attach(part)
+    except Exception as e:
+        logger.error(f"Failed to attach report file '{report_file}': {e}")
+        return
+
+    # Send email
+    try:
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()  # Enable TLS
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(sender, recipient, msg.as_string())
+        server.quit()
+        logger.info(f"Report email sent successfully to {recipient}")
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+
 # Main function to test XSS with Cloudflare bypass
-def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: int = 3) -> None:
+def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: int = 3, report_file: str = "xss_report.txt") -> None:
     parsed_url = urlparse(target_url)
     base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
     params = dict(param.split('=') for param in parsed_url.query.split('&')) if parsed_url.query else {}
@@ -149,6 +207,8 @@ def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: i
 
                 if payload in response.text:
                     logger.info(f"Potential XSS vulnerability found with payload: {payload}")
+                    log_vulnerability_to_file(report_file, target_url, payload)  # Log to file
+
                 else:
                     logger.debug(f"No XSS detected with payload: {payload} in response")
 
@@ -169,6 +229,10 @@ def main():
     parser.add_argument('-t', '--timeout', type=int, default=10, help='Request timeout in seconds')
     parser.add_argument('-r', '--retries', type=int, default=3, help='Number of retries on failure')
     parser.add_argument('-p', '--payload-file', default='xss_payloads.txt', help='Path to a text file containing XSS payloads (default: xss_payloads.txt)')
+    parser.add_argument('--smtp-server', default='smtp.gmail.com', help='SMTP server (default: smtp.gmail.com)')
+    parser.add_argument('--smtp-port', type=int, default=587, help='SMTP port (default: 587)')
+    parser.add_argument('--smtp-user', help='SMTP username (e.g., your email)')
+    parser.add_argument('--smtp-pass', help='SMTP password or app password')
     args = parser.parse_args()
 
     # Load payloads from file (if it exists) and combine with default payloads
@@ -177,7 +241,21 @@ def main():
     logger.info(f"Using {len(payloads)} total payloads ({len(DEFAULT_XSS_PAYLOADS)} default + {len(file_payloads)} from file)")
 
     logger.info(f"Starting XSS test on {args.url}")
-    test_xss(args.url, payloads, args.timeout, args.retries)
+    test_xss(args.url, payloads, args.timeout, args.retries, report_file="xss_report.txt")
+
+    # Send report email if SMTP credentials are provided
+    if args.smtp_user and args.smtp_pass:
+        send_report_email(
+            report_file="xss_report.txt",
+            smtp_server=args.smtp_server,
+            smtp_port=args.smtp_port,
+            smtp_user=args.smtp_user,
+            smtp_pass=args.smtp_pass,
+            recipient="miftahudeentajudeen@gmail.com"
+        )
+    else:
+        logger.warning("SMTP credentials not provided. Skipping email send. Use --smtp-user and --smtp-pass to enable.")
+
     logger.info("Test completed")
 
 if __name__ == "__main__":

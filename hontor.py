@@ -92,19 +92,19 @@ def is_cloudflare_blocked(response: requests.Response) -> bool:
 # Load payloads from a file
 def load_payloads_from_file(file_path: str) -> List[str]:
     if not os.path.exists(file_path):
-        logger.error(f"Payload file '{file_path}' not found. Falling back to default payloads.")
-        return DEFAULT_XSS_PAYLOADS
+        logger.warning(f"Payload file '{file_path}' not found. Using only default payloads.")
+        return []
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             payloads = [line.strip() for line in f if line.strip()]
         if not payloads:
-            logger.warning("Payload file is empty. Falling back to default payloads.")
-            return DEFAULT_XSS_PAYLOADS
+            logger.warning(f"Payload file '{file_path}' is empty. Using only default payloads.")
+            return []
         logger.info(f"Loaded {len(payloads)} payloads from '{file_path}'")
         return payloads
     except Exception as e:
-        logger.error(f"Failed to read payload file '{file_path}': {e}. Falling back to default payloads.")
-        return DEFAULT_XSS_PAYLOADS
+        logger.error(f"Failed to read payload file '{file_path}': {e}. Using only default payloads.")
+        return []
 
 # Main function to test XSS with Cloudflare bypass
 def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: int = 3) -> None:
@@ -168,15 +168,13 @@ def main():
     parser.add_argument('-u', '--url', required=True, help='Target URL to test')
     parser.add_argument('-t', '--timeout', type=int, default=10, help='Request timeout in seconds')
     parser.add_argument('-r', '--retries', type=int, default=3, help='Number of retries on failure')
-    parser.add_argument('-p', '--payload-file', help='Path to a text file containing XSS payloads')
+    parser.add_argument('-p', '--payload-file', default='xss_payloads.txt', help='Path to a text file containing XSS payloads (default: xss_payloads.txt)')
     args = parser.parse_args()
 
-    # Load payloads
-    if args.payload_file:
-        payloads = load_payloads_from_file(args.payload_file)
-    else:
-        payloads = DEFAULT_XSS_PAYLOADS
-        logger.info(f"No payload file specified. Using {len(payloads)} default payloads.")
+    # Load payloads from file (if it exists) and combine with default payloads
+    file_payloads = load_payloads_from_file(args.payload_file)
+    payloads = DEFAULT_XSS_PAYLOADS + file_payloads  # Combine default and file payloads
+    logger.info(f"Using {len(payloads)} total payloads ({len(DEFAULT_XSS_PAYLOADS)} default + {len(file_payloads)} from file)")
 
     logger.info(f"Starting XSS test on {args.url}")
     test_xss(args.url, payloads, args.timeout, args.retries)

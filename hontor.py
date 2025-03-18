@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 from typing import List, Dict
 import logging
 import os
-from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -107,19 +106,8 @@ def load_payloads_from_file(file_path: str) -> List[str]:
         logger.error(f"Failed to read payload file '{file_path}': {e}. Using only default payloads.")
         return []
 
-# Write vulnerability to report file
-def log_vulnerability_to_file(report_file: str, target_url: str, payload: str) -> None:
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    report_entry = f"[{timestamp}] Potential XSS Vulnerability\nTarget URL: {target_url}\nPayload: {payload}\n{'-'*50}\n"
-    try:
-        with open(report_file, 'a', encoding='utf-8') as f:
-            f.write(report_entry)
-        logger.debug(f"Logged vulnerability to {report_file}")
-    except Exception as e:
-        logger.error(f"Failed to write to report file '{report_file}': {e}")
-
 # Main function to test XSS with Cloudflare bypass
-def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: int = 3, report_file: str = "xss_report.txt") -> None:
+def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: int = 3) -> None:
     parsed_url = urlparse(target_url)
     base_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
     params = dict(param.split('=') for param in parsed_url.query.split('&')) if parsed_url.query else {}
@@ -161,8 +149,6 @@ def test_xss(target_url: str, payloads: List[str], timeout: int = 10, retries: i
 
                 if payload in response.text:
                     logger.info(f"Potential XSS vulnerability found with payload: {payload}")
-                    log_vulnerability_to_file(report_file, target_url, payload)  # Log to file
-
                 else:
                     logger.debug(f"No XSS detected with payload: {payload} in response")
 
@@ -191,7 +177,7 @@ def main():
     logger.info(f"Using {len(payloads)} total payloads ({len(DEFAULT_XSS_PAYLOADS)} default + {len(file_payloads)} from file)")
 
     logger.info(f"Starting XSS test on {args.url}")
-    test_xss(args.url, payloads, args.timeout, args.retries, report_file="xss_report.txt")
+    test_xss(args.url, payloads, args.timeout, args.retries)
     logger.info("Test completed")
 
 if __name__ == "__main__":
